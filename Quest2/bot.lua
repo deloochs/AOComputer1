@@ -12,11 +12,6 @@ colors = {
   gray = "\27[90m"
 }
 
-function addLog(msg, text) -- Function definition commented for performance, can be used for debugging
-  Logs[msg] = Logs[msg] or {}
-  table.insert(Logs[msg], text)
-end
-
 -- Checks if two points are within a given range.
 -- @param x1, y1: Coordinates of the first point.
 -- @param x2, y2: Coordinates of the second point.
@@ -30,26 +25,87 @@ end
 -- If any player is within range, it initiates an attack; otherwise, moves randomly.
 function decideNextAction()
   local player = LatestGameState.Players[ao.id]
-  local targetInRange = false
-
-  for target, state in pairs(LatestGameState.Players) do
-      if target ~= ao.id and inRange(player.x, player.y, state.x, state.y, 1) then
-          targetInRange = true
-          break
-      end
-  end
-
-  if player.energy > 5 and targetInRange then
-    print(colors.red .. "Player in range. Attacking." .. colors.reset)
-    ao.send({Target = Game, Action = "PlayerAttack", Player = ao.id, AttackEnergy = tostring(player.energy)})
+  local nearestPlayer = findNearestPlayer(player)
+  
+  if nearestPlayer ~= nil then
+    local distanceToPlayer = calculateDistance(player.x, player.y, nearestPlayer.x, nearestPlayer.y)
+    
+    if inRange(player.x, player.y, nearestPlayer.x, nearestPlayer.y, 1) and player.energy > 5 then
+      print(colors.red .. "Player in range. Attacking." .. colors.reset)
+      ao.send({Target = Game, Action = "PlayerAttack", Player = ao.id, AttackEnergy = tostring(player.energy)})
+    else
+      print(colors.red .. "Moving towards nearest player." .. colors.reset)
+      local direction = calculateDirection(player.x, player.y, nearestPlayer.x, nearestPlayer.y)
+      ao.send({Target = Game, Action = "PlayerMove", Player = ao.id, Direction = direction})
+    end
   else
-    print(colors.red .. "No player in range or insufficient energy. Moving randomly." .. colors.reset)
-    local directionMap = {"Up", "Down", "Left", "Right", "UpRight", "UpLeft", "DownRight", "DownLeft"}
-    local randomIndex = math.random(#directionMap)
-    ao.send({Target = Game, Action = "PlayerMove", Player = ao.id, Direction = directionMap[randomIndex]})
+    print(colors.red .. "No players detected. Moving randomly." .. colors.reset)
+    moveRandomly()
   end
-  InAction = false -- InAction logic added
+  
+  InAction = false
 end
+
+function findNearestPlayer(player)
+  local nearestDistance = math.huge
+  local nearestPlayer = nil
+  
+  for target, state in pairs(LatestGameState.Players) do
+    if target ~= ao.id then
+      local distance = calculateDistance(player.x, player.y, state.x, state.y)
+      if distance < nearestDistance then
+        nearestDistance = distance
+        nearestPlayer = state
+      end
+    end
+  end
+  
+  return nearestPlayer
+end
+
+function calculateDistance(x1, y1, x2, y2)
+  return math.sqrt((x2 - x1)^2 + (y2 - y1)^2)
+end
+
+function calculateDirection(x1, y1, x2, y2)
+  local dx = x2 - x1
+  local dy = y2 - y1
+  
+  if dx == 0 then
+    if dy > 0 then
+      return "Down"
+    elseif dy < 0 then
+      return "Up"
+    end
+  elseif dy == 0 then
+    if dx > 0 then
+      return "Right"
+    elseif dx < 0 then
+      return "Left"
+    end
+  else
+    if dx > 0 then
+      if dy > 0 then
+        return "DownRight"
+      else
+        return "UpRight"
+      end
+    else
+      if dy > 0 then
+        return "DownLeft"
+      else
+        return "UpLeft"
+      end
+    end
+  end
+end
+
+function moveRandomly()
+  local directionMap = {"Up", "Down", "Left", "Right", "UpRight", "UpLeft", "DownRight", "DownLeft"}
+  local randomIndex = math.random(#directionMap)
+  ao.send({Target = Game, Action = "PlayerMove", Player = ao.id, Direction = directionMap[randomIndex]})
+end
+
 
 -- Handler to print game announcements and trigger game state updates.
 Handlers.add(
